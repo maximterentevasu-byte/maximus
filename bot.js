@@ -1,6 +1,57 @@
 const { Telegraf, Markup } = require('telegraf');
+const XLSX = require('xlsx');
+const path = require('path');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
+
+// Путь к Excel-файлу
+const EXCEL_FILE_PATH = path.join(__dirname, 'CLIENT_EXPORT.xlsx');
+
+// Нормализация телефона:
+// оставляем только цифры
+// 8XXXXXXXXXX -> 7XXXXXXXXXX
+function normalizePhone(phone) {
+    if (!phone) return '';
+
+    let cleaned = String(phone).replace(/\D/g, '');
+
+    if (cleaned.length === 11 && cleaned.startsWith('8')) {
+        cleaned = '7' + cleaned.slice(1);
+    }
+
+    return cleaned;
+}
+
+// Поиск ссылки карты по номеру телефона
+function findCardLinkByPhone(phone) {
+    const normalizedPhone = normalizePhone(phone);
+
+    const workbook = XLSX.readFile(EXCEL_FILE_PATH);
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+
+    // Получаем строки как массив массивов
+    // header: 1 => первая строка не считается заголовком объекта
+    const rows = XLSX.utils.sheet_to_json(sheet, {
+        header: 1,
+        defval: ''
+    });
+
+    // E = индекс 4
+    // P = индекс 15
+    for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+
+        const excelPhone = normalizePhone(row[4]);
+        const cardLink = row[15];
+
+        if (excelPhone && excelPhone === normalizedPhone) {
+            return String(cardLink).trim();
+        }
+    }
+
+    return null;
+}
 
 // Главное меню
 function mainMenu(ctx) {
@@ -41,13 +92,28 @@ bot.hears('Скачать бонусную карту на телефон', (ctx
 });
 
 // Получение контакта
-bot.on('contact', (ctx) => {
-    const contact = ctx.message.contact;
+bot.on('contact', async (ctx) => {
+    try {
+        const contact = ctx.message.contact;
+        const phone = contact.phone_number;
 
-    return ctx.reply(
-        `Контакт получен:\nИмя: ${contact.first_name || '-'}\nТелефон: ${contact.phone_number || '-'}`,
-        Markup.keyboard([['На главный экран']]).resize()
-    );
+        // Сначала показываем номер в чат
+        await ctx.reply(
+            `Контакт получен:\nИмя: ${contact.first_name || '-'}\nТелефон: ${phone || '-'}`,
+            Markup.keyboard([['На главный экран']]).resize()
+        );
+
+        const cardLink = findCardLinkByPhone(phone);
+
+        if (cardLink) {
+            await ctx.reply(`Держи ссылку для скачивания бонусной карты - ${cardLink}`);
+        } else {
+            await ctx.reply('К сожалению, номер не найден в клиентской базе.');
+        }
+    } catch (error) {
+        console.error('Ошибка при обработке контакта:', error);
+        await ctx.reply('Произошла ошибка при поиске бонусной карты.');
+    }
 });
 
 // Возврат в меню
