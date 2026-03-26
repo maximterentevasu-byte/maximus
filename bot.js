@@ -5,40 +5,37 @@ const path = require('path');
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const ADMIN_ID = 758972533;
+const ADMIN_USERNAME = 'tervmax';
+
 const EXCEL_FILE_PATH = path.join(__dirname, 'CLIENT_EXPORT.xlsx');
 const REGISTRATION_URL = 'https://card.evobonus.ru/form/74e48448-1975-4bca-a455-92ec9a4bbf76';
+const ANDROID_URL = 'https://play.google.com/store/apps/details?id=com.sst.evobonus&referrer=pass_url%3Dhttps://appcampaign.a1-systems.com/passkit/v1/passes/pass.com.ng.naviguide/fe694199-ef3e-47a4-83d1-7e622908398b%26org%3DSomeOrg';
 
 // Нормализация телефона
 function normalizePhone(phone) {
     if (!phone) return '';
-
     let cleaned = String(phone).replace(/\D/g, '');
-
     if (cleaned.length === 11 && cleaned.startsWith('8')) {
         cleaned = '7' + cleaned.slice(1);
     }
-
     return cleaned;
 }
 
-// Поиск ссылки карты по номеру телефона
+// Поиск карты
 function findCardLinkByPhone(phone) {
     const normalizedPhone = normalizePhone(phone);
 
     const workbook = XLSX.readFile(EXCEL_FILE_PATH);
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
 
     const rows = XLSX.utils.sheet_to_json(sheet, {
         header: 1,
         defval: ''
     });
 
-    // E = индекс 4, P = индекс 15
     for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const excelPhone = normalizePhone(row[4]);
-        const cardLink = String(row[15] || '').trim();
+        const excelPhone = normalizePhone(rows[i][4]);
+        const cardLink = String(rows[i][15] || '').trim();
 
         if (excelPhone && excelPhone === normalizedPhone) {
             return cardLink;
@@ -48,31 +45,27 @@ function findCardLinkByPhone(phone) {
     return null;
 }
 
-// Имя пользователя для сообщений
+// Имя пользователя
 function getUserDisplayName(user) {
-    if (!user) return 'без имени';
-
-    if (user.username) {
-        return `@${user.username}`;
-    }
-
-    const parts = [user.first_name, user.last_name].filter(Boolean);
-    return parts.length ? parts.join(' ') : 'без имени';
+    if (user.username) return `@${user.username}`;
+    return [user.first_name, user.last_name].filter(Boolean).join(' ') || 'без имени';
 }
 
-// Главное меню
+// Главное меню (4 кнопки)
 function mainMenu(ctx) {
     return ctx.reply(
         'Привет! Я бот бонусной программы Pick me. Выбери интересующий тебя пункт:',
         Markup.keyboard([
             ['Подключиться к бонусной программе'],
-            ['Скачать бонусную карту на телефон']
+            ['Скачать бонусную карту на телефон'],
+            ['Скачать Эвобонус для Android'],
+            ['Сообщить об ошибке']
         ]).resize()
     );
 }
 
-// Сообщение для регистрации
-function sendRegistrationMessage(ctx) {
+// Регистрация
+function sendRegistration(ctx) {
     return ctx.reply(
         `Для регистрации в бонусной программе заполни <a href="${REGISTRATION_URL}">анкету</a>`,
         {
@@ -82,15 +75,11 @@ function sendRegistrationMessage(ctx) {
     );
 }
 
-// /start
-bot.start((ctx) => {
-    return mainMenu(ctx);
-});
+// START
+bot.start((ctx) => mainMenu(ctx));
 
 // Кнопка 1
-bot.hears('Подключиться к бонусной программе', (ctx) => {
-    return sendRegistrationMessage(ctx);
-});
+bot.hears('Подключиться к бонусной программе', (ctx) => sendRegistration(ctx));
 
 // Кнопка 2
 bot.hears('Скачать бонусную карту на телефон', (ctx) => {
@@ -103,13 +92,37 @@ bot.hears('Скачать бонусную карту на телефон', (ctx
     );
 });
 
-// Получение контакта
+// Кнопка Android
+bot.hears('Скачать Эвобонус для Android', (ctx) => {
+    return ctx.reply(
+        'Для скачивания нажмите на кнопку:',
+        Markup.inlineKeyboard([
+            [Markup.button.url('Скачать приложение', ANDROID_URL)]
+        ])
+    ).then(() => {
+        return ctx.reply(
+            ' ',
+            Markup.keyboard([['На главный экран']]).resize()
+        );
+    });
+});
+
+// Кнопка "Сообщить об ошибке"
+bot.hears('Сообщить об ошибке', (ctx) => {
+    return ctx.reply(
+        'Напишите администратору:',
+        Markup.inlineKeyboard([
+            [Markup.button.url('Открыть чат с администратором', `https://t.me/${ADMIN_USERNAME}`)]
+        ])
+    );
+});
+
+// Обработка контакта
 bot.on('contact', async (ctx) => {
     try {
         const contact = ctx.message.contact;
         const phone = contact?.phone_number;
-        const user = ctx.from;
-        const userName = getUserDisplayName(user);
+        const userName = getUserDisplayName(ctx.from);
 
         if (!phone) {
             await bot.telegram.sendMessage(
@@ -117,29 +130,23 @@ bot.on('contact', async (ctx) => {
                 `Пользователь ${userName} не смог скачать электронную карту.`
             );
 
-            await ctx.reply(
-                'Невозможно идентифицировать карту по номеру телефона, мы отправили запрос администратору сервиса.',
+            return ctx.reply(
+                'Невозможно идентифицировать карту по номеру телефона, мы отправили запрос администратору.',
                 Markup.keyboard([['На главный экран']]).resize()
             );
-            return;
         }
-
-        await ctx.reply(
-            `Контакт получен:\nИмя: ${contact.first_name || '-'}\nТелефон: ${phone}`,
-            Markup.keyboard([['На главный экран']]).resize()
-        );
 
         const cardLink = findCardLinkByPhone(phone);
 
         if (cardLink) {
-            await ctx.reply(
-                'Твоя бонусная карта готова 🎉\nНажми кнопку ниже, чтобы скачать:',
+            return ctx.reply(
+                'Твоя бонусная карта готова 🎉\nНажми кнопку ниже:',
                 Markup.inlineKeyboard([
                     [Markup.button.url('Скачать карту', cardLink)]
                 ])
             );
         } else {
-            await ctx.reply(
+            return ctx.reply(
                 'Карта с указанным номером телефона не существует. Выпустить новую карту?',
                 Markup.keyboard([
                     ['Подключиться к бонусной программе'],
@@ -147,31 +154,24 @@ bot.on('contact', async (ctx) => {
                 ]).resize()
             );
         }
-    } catch (error) {
-        console.error('Ошибка при обработке контакта:', error);
 
-        const userName = getUserDisplayName(ctx.from);
+    } catch (e) {
+        console.error(e);
 
-        try {
-            await bot.telegram.sendMessage(
-                ADMIN_ID,
-                `Пользователь ${userName} не смог скачать электронную карту.`
-            );
-        } catch (adminError) {
-            console.error('Ошибка отправки сообщения админу:', adminError);
-        }
+        await bot.telegram.sendMessage(
+            ADMIN_ID,
+            `Ошибка у пользователя ${getUserDisplayName(ctx.from)}`
+        );
 
-        await ctx.reply(
-            'Невозможно идентифицировать карту по номеру телефона, мы отправили запрос администратору сервиса.',
+        return ctx.reply(
+            'Произошла ошибка. Мы уже сообщили администратору.',
             Markup.keyboard([['На главный экран']]).resize()
         );
     }
 });
 
-// Возврат в меню
-bot.hears('На главный экран', (ctx) => {
-    return mainMenu(ctx);
-});
+// Назад
+bot.hears('На главный экран', (ctx) => mainMenu(ctx));
 
 bot.launch();
 console.log('Bot started...');
