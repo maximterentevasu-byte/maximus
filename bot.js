@@ -6,6 +6,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 
 const ADMIN_ID = 758972533;
 const EXCEL_FILE_PATH = path.join(__dirname, 'CLIENT_EXPORT.xlsx');
+const REGISTRATION_URL = 'https://card.evobonus.ru/form/74e48448-1975-4bca-a455-92ec9a4bbf76';
 
 // Нормализация телефона
 function normalizePhone(phone) {
@@ -33,8 +34,7 @@ function findCardLinkByPhone(phone) {
         defval: ''
     });
 
-    // E = индекс 4
-    // P = индекс 15
+    // E = индекс 4, P = индекс 15
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         const excelPhone = normalizePhone(row[4]);
@@ -48,7 +48,7 @@ function findCardLinkByPhone(phone) {
     return null;
 }
 
-// Красивое имя пользователя для сообщений
+// Имя пользователя для сообщений
 function getUserDisplayName(user) {
     if (!user) return 'без имени';
 
@@ -71,6 +71,17 @@ function mainMenu(ctx) {
     );
 }
 
+// Сообщение для регистрации
+function sendRegistrationMessage(ctx) {
+    return ctx.reply(
+        `Для регистрации в бонусной программе заполни <a href="${REGISTRATION_URL}">анкету</a>`,
+        {
+            parse_mode: 'HTML',
+            ...Markup.keyboard([['На главный экран']]).resize()
+        }
+    );
+}
+
 // /start
 bot.start((ctx) => {
     return mainMenu(ctx);
@@ -78,13 +89,7 @@ bot.start((ctx) => {
 
 // Кнопка 1
 bot.hears('Подключиться к бонусной программе', (ctx) => {
-    return ctx.reply(
-        'Для регистрации в бонусной программе заполни <a href="https://card.evobonus.ru/form/74e48448-1975-4bca-a455-92ec9a4bbf76">анкету</a>',
-        {
-            parse_mode: 'HTML',
-            ...Markup.keyboard([['На главный экран']]).resize()
-        }
-    );
+    return sendRegistrationMessage(ctx);
 });
 
 // Кнопка 2
@@ -106,7 +111,6 @@ bot.on('contact', async (ctx) => {
         const user = ctx.from;
         const userName = getUserDisplayName(user);
 
-        // Если Telegram contact не передал номер телефона
         if (!phone) {
             await bot.telegram.sendMessage(
                 ADMIN_ID,
@@ -117,7 +121,6 @@ bot.on('contact', async (ctx) => {
                 'Невозможно идентифицировать карту по номеру телефона, мы отправили запрос администратору сервиса.',
                 Markup.keyboard([['На главный экран']]).resize()
             );
-
             return;
         }
 
@@ -137,8 +140,11 @@ bot.on('contact', async (ctx) => {
             );
         } else {
             await ctx.reply(
-                'К сожалению, номер не найден в клиентской базе.',
-                Markup.keyboard([['На главный экран']]).resize()
+                'Карта с указанным номером телефона не существует. Выпустить новую карту?',
+                Markup.keyboard([
+                    ['Подключиться к бонусной программе'],
+                    ['На главный экран']
+                ]).resize()
             );
         }
     } catch (error) {
