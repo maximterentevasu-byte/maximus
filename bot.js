@@ -4,7 +4,7 @@ const path = require('path');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Путь к Excel-файлу
+const ADMIN_ID = 758972533;
 const EXCEL_FILE_PATH = path.join(__dirname, 'CLIENT_EXPORT.xlsx');
 
 // Нормализация телефона
@@ -37,7 +37,6 @@ function findCardLinkByPhone(phone) {
     // P = индекс 15
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-
         const excelPhone = normalizePhone(row[4]);
         const cardLink = String(row[15] || '').trim();
 
@@ -47,6 +46,18 @@ function findCardLinkByPhone(phone) {
     }
 
     return null;
+}
+
+// Красивое имя пользователя для сообщений
+function getUserDisplayName(user) {
+    if (!user) return 'без имени';
+
+    if (user.username) {
+        return `@${user.username}`;
+    }
+
+    const parts = [user.first_name, user.last_name].filter(Boolean);
+    return parts.length ? parts.join(' ') : 'без имени';
 }
 
 // Главное меню
@@ -60,7 +71,7 @@ function mainMenu(ctx) {
     );
 }
 
-// Старт
+// /start
 bot.start((ctx) => {
     return mainMenu(ctx);
 });
@@ -91,10 +102,27 @@ bot.hears('Скачать бонусную карту на телефон', (ctx
 bot.on('contact', async (ctx) => {
     try {
         const contact = ctx.message.contact;
-        const phone = contact.phone_number;
+        const phone = contact?.phone_number;
+        const user = ctx.from;
+        const userName = getUserDisplayName(user);
+
+        // Если Telegram contact не передал номер телефона
+        if (!phone) {
+            await bot.telegram.sendMessage(
+                ADMIN_ID,
+                `Пользователь ${userName} не смог скачать электронную карту.`
+            );
+
+            await ctx.reply(
+                'Невозможно идентифицировать карту по номеру телефона, мы отправили запрос администратору сервиса.',
+                Markup.keyboard([['На главный экран']]).resize()
+            );
+
+            return;
+        }
 
         await ctx.reply(
-            `Контакт получен:\nИмя: ${contact.first_name || '-'}\nТелефон: ${phone || '-'}`,
+            `Контакт получен:\nИмя: ${contact.first_name || '-'}\nТелефон: ${phone}`,
             Markup.keyboard([['На главный экран']]).resize()
         );
 
@@ -115,8 +143,20 @@ bot.on('contact', async (ctx) => {
         }
     } catch (error) {
         console.error('Ошибка при обработке контакта:', error);
+
+        const userName = getUserDisplayName(ctx.from);
+
+        try {
+            await bot.telegram.sendMessage(
+                ADMIN_ID,
+                `Пользователь ${userName} не смог скачать электронную карту.`
+            );
+        } catch (adminError) {
+            console.error('Ошибка отправки сообщения админу:', adminError);
+        }
+
         await ctx.reply(
-            'Произошла ошибка при поиске бонусной карты.',
+            'Невозможно идентифицировать карту по номеру телефона, мы отправили запрос администратору сервиса.',
             Markup.keyboard([['На главный экран']]).resize()
         );
     }
