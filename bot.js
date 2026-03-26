@@ -7,9 +7,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 // Путь к Excel-файлу
 const EXCEL_FILE_PATH = path.join(__dirname, 'CLIENT_EXPORT.xlsx');
 
-// Нормализация телефона:
-// оставляем только цифры
-// 8XXXXXXXXXX -> 7XXXXXXXXXX
+// Нормализация телефона
 function normalizePhone(phone) {
     if (!phone) return '';
 
@@ -30,8 +28,6 @@ function findCardLinkByPhone(phone) {
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
 
-    // Получаем строки как массив массивов
-    // header: 1 => первая строка не считается заголовком объекта
     const rows = XLSX.utils.sheet_to_json(sheet, {
         header: 1,
         defval: ''
@@ -43,10 +39,10 @@ function findCardLinkByPhone(phone) {
         const row = rows[i];
 
         const excelPhone = normalizePhone(row[4]);
-        const cardLink = row[15];
+        const cardLink = String(row[15] || '').trim();
 
         if (excelPhone && excelPhone === normalizedPhone) {
-            return String(cardLink).trim();
+            return cardLink;
         }
     }
 
@@ -64,7 +60,7 @@ function mainMenu(ctx) {
     );
 }
 
-// /start
+// Старт
 bot.start((ctx) => {
     return mainMenu(ctx);
 });
@@ -97,7 +93,6 @@ bot.on('contact', async (ctx) => {
         const contact = ctx.message.contact;
         const phone = contact.phone_number;
 
-        // Сначала показываем номер в чат
         await ctx.reply(
             `Контакт получен:\nИмя: ${contact.first_name || '-'}\nТелефон: ${phone || '-'}`,
             Markup.keyboard([['На главный экран']]).resize()
@@ -106,13 +101,24 @@ bot.on('contact', async (ctx) => {
         const cardLink = findCardLinkByPhone(phone);
 
         if (cardLink) {
-            await ctx.reply(`Держи ссылку для скачивания бонусной карты - ${cardLink}`);
+            await ctx.reply(
+                'Твоя бонусная карта готова 🎉\nНажми кнопку ниже, чтобы скачать:',
+                Markup.inlineKeyboard([
+                    [Markup.button.url('Скачать карту', cardLink)]
+                ])
+            );
         } else {
-            await ctx.reply('К сожалению, номер не найден в клиентской базе.');
+            await ctx.reply(
+                'К сожалению, номер не найден в клиентской базе.',
+                Markup.keyboard([['На главный экран']]).resize()
+            );
         }
     } catch (error) {
         console.error('Ошибка при обработке контакта:', error);
-        await ctx.reply('Произошла ошибка при поиске бонусной карты.');
+        await ctx.reply(
+            'Произошла ошибка при поиске бонусной карты.',
+            Markup.keyboard([['На главный экран']]).resize()
+        );
     }
 });
 
